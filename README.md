@@ -6,6 +6,7 @@ A small ESP32 rocket-control demo with a 3D-printable parts set, MPU6050 sensor 
 
 - `rocket.ino` - ESP32 Arduino sketch for sensor fusion, display output, and servo control
 - `rocket-stl/` - printable STL parts
+- `software simulation.md` - local hardware-free simulation workflow
 - `README.md` - project overview and build instructions
 
 ## 3D Printing
