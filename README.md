@@ -1,10 +1,10 @@
 # Rocket V-0
 
-A production-grade, self-calibrating ESP32 flight controller demonstration. Features a high-precision **deterministic 100 Hz control loop** (`micros()`), automatic **sensor offset calibration**, a **non-blocking 5 Hz OLED Telemetry Dashboard (HUD)**, a dual-servo stabilization layout, and full hardware-free local simulation support.
+A production-grade, self-calibrating ESP32 flight controller demonstration. Features a high-precision **deterministic 100 Hz control loop** (`micros()`), a **PID-based attitude controller**, a **complementary-filter sensor fusion** pipeline, automatic **sensor offset auto-calibration**, a **non-blocking 5 Hz OLED Telemetry Dashboard (HUD)**, a dual-servo stabilization layout, and full hardware-free local simulation support.
 
 ## Repository Contents
 
-- `rocket.ino` - High-performance ESP32 Arduino sketch for sensor fusion, attitude control, OLED HUD telemetry, and servo actuation.
+- `rocket.ino` - High-performance ESP32 Arduino sketch implementing complementary-filter sensor fusion, a PID-based attitude controller, automatic auto-calibration routines, OLED HUD telemetry, and servo actuation.
 - `rocket-stl/` - 3D-printable airframe, bracket, and nosecone parts.
 - `software simulation.md` - High-fidelity local simulation, testing, and debugging workflow.
 - `README.md` - Project hardware wiring, dependencies, and build instructions.
