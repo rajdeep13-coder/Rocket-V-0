@@ -1,0 +1,20 @@
+# Arduino / VS Code
+.vscode/
+*.tmp
+*.temp
+*.bak
+
+# Build artifacts
+*.o
+*.elf
+*.bin
+*.hex
+*.map
+
+# OS files
+Thumbs.db
+.DS_Store
+
+# Local-only simulation toggle
+sim_config.h
+#"#define SIMULATION_MODE 1;"

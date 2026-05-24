@@ -1,0 +1,15 @@
+# Arduino dependency manifest for the Rocket project
+# This is not a Python pip requirements file; it lists the Arduino packages to install.
+
+# Board support package
+ESP32 Arduino core
+
+# Required libraries
+Adafruit MPU6050
+Adafruit Unified Sensor
+ESP32Servo
+Adafruit GFX Library
+Adafruit SSD1306
+
+# Built-in Arduino core dependency used by the sketch
+Wire
