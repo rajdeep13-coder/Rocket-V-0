@@ -1,13 +1,13 @@
 # Rocket V-0
 
-A small ESP32 rocket-control demo with a 3D-printable parts set, MPU6050 sensor input, OLED status display, and dual servo outputs.
+A production-grade, self-calibrating ESP32 flight controller demonstration. Features a high-precision **deterministic 100 Hz control loop** (`micros()`), automatic **sensor offset calibration**, a **non-blocking 5 Hz OLED Telemetry Dashboard (HUD)**, a dual-servo stabilization layout, and full hardware-free local simulation support.
 
 ## Repository Contents
 
-- `rocket.ino` - ESP32 Arduino sketch for sensor fusion, display output, and servo control
-- `rocket-stl/` - printable STL parts
-- `software simulation.md` - local hardware-free simulation workflow
-- `README.md` - project overview and build instructions
+- `rocket.ino` - High-performance ESP32 Arduino sketch for sensor fusion, attitude control, OLED HUD telemetry, and servo actuation.
+- `rocket-stl/` - 3D-printable airframe, bracket, and nosecone parts.
+- `software simulation.md` - High-fidelity local simulation, testing, and debugging workflow.
+- `README.md` - Project hardware wiring, dependencies, and build instructions.
 
 ## 3D Printing
 

@@ -101,9 +101,23 @@ float pitchIntegral = 0.0f;
 float rollIntegral = 0.0f;
 float lastPitchError = 0.0f;
 float lastRollError = 0.0f;
-unsigned long lastControlMillis = 0;
 unsigned long lastSensorMillis = 0;
 bool controlInitialized = false;
+
+// Calibration bias offsets
+float accelBiasX = 0.0f;
+float accelBiasY = 0.0f;
+float gyroBiasX = 0.0f;
+float gyroBiasY = 0.0f;
+float gyroBiasZ = 0.0f;
+
+// Loop timing variables
+unsigned long lastLoopMicros = 0;
+const unsigned long CONTROL_PERIOD_MICROS = 10000; // 10ms = 100 Hz
+
+// OLED non-blocking refresh timer
+unsigned long lastOledMillis = 0;
+const unsigned long OLED_PERIOD_MS = 200; // 5 Hz
 
 float accelX = 0.0f;
 float accelY = 0.0f;
@@ -114,9 +128,11 @@ float gyroZ = 0.0f;
 bool sensorHealthy = false;
 
 bool readSensors();
-void computePID(unsigned long nowMillis);
+void computePID(unsigned long nowMillis, float dt);
 void writeServos();
 void logFlightData(unsigned long nowMillis);
+void calibrateMPU();
+void updateOLED(unsigned long nowMillis);
 
 void setup(void) {
   Serial.begin(115200);
@@ -137,6 +153,15 @@ void setup(void) {
 #if !SIMULATION_MODE
   if (!mpu.begin()) {
     Serial.println("Failed to find MPU6050 chip");
+    display.clearDisplay();
+    display.setTextSize(2);
+    display.setTextColor(WHITE);
+    display.setCursor(12, 15);
+    display.println("NO MPU6050");
+    display.setTextSize(1);
+    display.setCursor(12, 40);
+    display.println("Check connections!");
+    display.display();
     while (1) {
       delay(10);
     }
@@ -145,6 +170,10 @@ void setup(void) {
   mpu.setGyroRange(MPU6050_RANGE_250_DEG);
   mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);
   delay(100);
+
+  // Perform automatic sensor offset calibration
+  calibrateMPU();
+
   ESP32PWM::allocateTimer(0);
   ESP32PWM::allocateTimer(1);
   ESP32PWM::allocateTimer(2);
@@ -157,30 +186,48 @@ void setup(void) {
 #else
   Serial.println("timestamp,mode,accelX,accelY,accelZ,gyroX,gyroY,gyroZ,servoX,servoY,healthy");
 #endif
+
+  // Initialize loop timer
+  lastLoopMicros = micros();
+  lastOledMillis = millis();
 }
 
 void loop() {
-  unsigned long nowMillis = millis();
-  sensorHealthy = readSensors();
+  unsigned long nowMicros = micros();
 
-  if (!sensorHealthy || (nowMillis - lastSensorMillis) > SENSOR_TIMEOUT_MS) {
-    ax = 90;
-    ay = 90;
-    pitchIntegral = 0.0f;
-    rollIntegral = 0.0f;
-    lastPitchError = 0.0f;
-    lastRollError = 0.0f;
-    controlInitialized = false;
-    writeServos();
-    logFlightData(nowMillis);
-    delay(10);
-    return;
+  // 1. Precise Control Loop (100 Hz = 10,000 microseconds)
+  if (nowMicros - lastLoopMicros >= CONTROL_PERIOD_MICROS) {
+    unsigned long dtMicros = nowMicros - lastLoopMicros;
+    lastLoopMicros = nowMicros;
+
+    unsigned long nowMillis = millis();
+    sensorHealthy = readSensors();
+
+    if (!sensorHealthy || (nowMillis - lastSensorMillis) > SENSOR_TIMEOUT_MS) {
+      ax = 90;
+      ay = 90;
+      pitchIntegral = 0.0f;
+      rollIntegral = 0.0f;
+      lastPitchError = 0.0f;
+      lastRollError = 0.0f;
+      controlInitialized = false;
+      writeServos();
+      logFlightData(nowMillis);
+    } else {
+      // Calculate precise dt in seconds from elapsed microseconds
+      float dt = dtMicros * 0.000001f;
+      computePID(nowMillis, dt);
+      writeServos();
+      logFlightData(nowMillis);
+    }
   }
 
-  computePID(nowMillis);
-  writeServos();
-  logFlightData(nowMillis);
-  delay(10);
+  // 2. Non-blocking OLED Telemetry Update (5 Hz = 200ms)
+  unsigned long nowMillis = millis();
+  if (nowMillis - lastOledMillis >= OLED_PERIOD_MS) {
+    lastOledMillis = nowMillis;
+    updateOLED(nowMillis);
+  }
 }
 
 bool readSensors() {
@@ -199,12 +246,13 @@ bool readSensors() {
   sensors_event_t a, g, temp;
   mpu.getEvent(&a, &g, &temp);
 
-  accelX = a.acceleration.x;
-  accelY = a.acceleration.y;
-  accelZ = a.acceleration.z;
-  gyroX = g.gyro.x;
-  gyroY = g.gyro.y;
-  gyroZ = g.gyro.z;
+  // Apply calibration offsets to raw measurements
+  accelX = a.acceleration.x - accelBiasX;
+  accelY = a.acceleration.y - accelBiasY;
+  accelZ = a.acceleration.z; // Keep raw Z axis
+  gyroX = g.gyro.x - gyroBiasX;
+  gyroY = g.gyro.y - gyroBiasY;
+  gyroZ = g.gyro.z - gyroBiasZ;
 
   bool readingValid = isfinite(accelX) && isfinite(accelY) && isfinite(accelZ)
     && isfinite(gyroX) && isfinite(gyroY) && isfinite(gyroZ);
@@ -217,13 +265,7 @@ bool readSensors() {
 #endif
 }
 
-void computePID(unsigned long nowMillis) {
-
-  float dt = 0.01f;
-  if (lastControlMillis != 0) {
-    dt = (nowMillis - lastControlMillis) * 0.001f;
-  }
-  lastControlMillis = nowMillis;
+void computePID(unsigned long nowMillis, float dt) {
   dt = constrain(dt, 0.001f, 0.1f);
 
   float accelPitch = atan2(accelX, sqrt((accelY * accelY) + (accelZ * accelZ))) * RAD_TO_DEG_FACTOR;
@@ -289,4 +331,121 @@ void logFlightData(unsigned long nowMillis) {
   Serial.print(ay);
   Serial.print(",");
   Serial.println(sensorHealthy ? 1 : 0);
+}
+
+void calibrateMPU() {
+#if !SIMULATION_MODE
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(WHITE);
+  
+  display.setCursor(0, 5);
+  display.println("MPU6050 CALIBRATION");
+  display.drawFastHLine(0, 15, 128, WHITE);
+  
+  display.setCursor(0, 22);
+  display.println("Place flat & still");
+  display.println("Calibrating...");
+  display.display();
+  
+  Serial.println("Starting MPU6050 Calibration... Keep flat and stationary.");
+
+  float sumAccX = 0.0f;
+  float sumAccY = 0.0f;
+  float sumGyrX = 0.0f;
+  float sumGyrY = 0.0f;
+  float sumGyrZ = 0.0f;
+  
+  const int NUM_SAMPLES = 100;
+  for (int i = 0; i < NUM_SAMPLES; i++) {
+    sensors_event_t a, g, temp;
+    mpu.getEvent(&a, &g, &temp);
+    
+    sumAccX += a.acceleration.x;
+    sumAccY += a.acceleration.y;
+    sumGyrX += g.gyro.x;
+    sumGyrY += g.gyro.y;
+    sumGyrZ += g.gyro.z;
+    
+    // Draw a visual loading bar (100 pixels wide)
+    display.fillRect(14, 46, (i + 1), 6, WHITE);
+    display.display();
+    
+    delay(20);
+  }
+  
+  accelBiasX = sumAccX / NUM_SAMPLES;
+  accelBiasY = sumAccY / NUM_SAMPLES;
+  gyroBiasX = sumGyrX / NUM_SAMPLES;
+  gyroBiasY = sumGyrY / NUM_SAMPLES;
+  gyroBiasZ = sumGyrZ / NUM_SAMPLES;
+  
+  Serial.print("MPU Calibration Complete. Offsets: AccX=");
+  Serial.print(accelBiasX);
+  Serial.print(", AccY=");
+  Serial.print(accelBiasY);
+  Serial.print(", GyrX=");
+  Serial.print(gyroBiasX);
+  Serial.print(", GyrY=");
+  Serial.print(gyroBiasY);
+  Serial.print(", GyrZ=");
+  Serial.println(gyroBiasZ);
+
+  display.clearDisplay();
+  display.setCursor(0, 10);
+  display.println("CALIBRATION COMPLETE!");
+  display.println();
+  display.print("AccX offset: "); display.println(accelBiasX, 2);
+  display.print("AccY offset: "); display.println(accelBiasY, 2);
+  display.display();
+  delay(1500);
+#endif
+}
+
+void updateOLED(unsigned long nowMillis) {
+  display.clearDisplay();
+  display.setTextColor(WHITE);
+  
+  if (!sensorHealthy) {
+    display.setTextSize(2);
+    display.setCursor(12, 10);
+    display.println("SYS FAIL!");
+    display.setTextSize(1);
+    display.setCursor(12, 35);
+    display.println("Servos centered.");
+    display.setCursor(12, 47);
+    display.println("Check hardware!");
+    display.display();
+    return;
+  }
+  
+  display.setTextSize(1);
+  // Header Row
+  display.setCursor(0, 0);
+  display.print("ROCKET V-0 ");
+  display.println(SIMULATION_MODE ? "[SIM]" : "[REAL]");
+  display.drawFastHLine(0, 9, 128, WHITE);
+  
+  // Telemetry HUD
+  display.setCursor(0, 14);
+  display.print("Pitch: ");
+  if (fusedPitch >= 0) display.print("+");
+  display.print(fusedPitch, 1);
+  display.print(" deg");
+
+  display.setCursor(0, 26);
+  display.print("Roll : ");
+  if (fusedRoll >= 0) display.print("+");
+  display.print(fusedRoll, 1);
+  display.print(" deg");
+
+  display.setCursor(0, 38);
+  display.print("Servo X: ");
+  display.print(ax);
+  
+  display.setCursor(0, 50);
+  display.print("Servo Y: ");
+  display.print(ay);
+  
+  display.display();
 }
